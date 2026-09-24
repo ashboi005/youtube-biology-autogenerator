@@ -25,6 +25,9 @@ const OVERLAY_POS: Record<Position, string> = {
   bottom: "bottom-[12%]",
 };
 
+const SILENT_WAV =
+  "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=";
+
 /** Freshly recorded voiceovers play from memory; older ones are fetched once. */
 const voiceUrls = new Map<string, string>();
 
@@ -38,6 +41,8 @@ export function Editor({ clip, refresh }: { clip: Clip; refresh: () => Promise<v
   const [mode, setMode] = useState<Mode>({ kind: "idle" });
   const duration = clip.durationSec ?? 0;
   const recordingRef = useRef(false);
+  const activeVoice = useRef<Voiceover | undefined>(undefined);
+  const audioUnlocked = useRef(false);
   recordingRef.current = mode.kind === "recording" || mode.kind === "countdown";
 
   // Prefer the file still on the phone (no download); otherwise stream from storage.
@@ -65,7 +70,6 @@ export function Editor({ clip, refresh }: { clip: Clip; refresh: () => Promise<v
   // Preview loop: skip cuts, swap in re-recorded voice.
   useEffect(() => {
     let raf = 0;
-    let activeVoice: Voiceover | undefined;
     const tick = () => {
       const v = video.current;
       if (v) {
@@ -77,8 +81,8 @@ export function Editor({ clip, refresh }: { clip: Clip; refresh: () => Promise<v
 
           const voice = voiceAt(now);
           const a = audio.current;
-          if (voice !== activeVoice) {
-            activeVoice = voice;
+          if (voice !== activeVoice.current) {
+            activeVoice.current = voice;
             if (a) a.pause();
             v.muted = Boolean(voice);
             if (voice && a) {
@@ -100,14 +104,38 @@ export function Editor({ clip, refresh }: { clip: Clip; refresh: () => Promise<v
     setT(v.currentTime);
   };
 
+  // iOS Safari only lets a media element play from code after it has been started inside a tap.
+  // Unlock the voice <audio> on the first Play tap with a silent clip.
+  const unlockAudio = () => {
+    const a = audio.current;
+    if (!a || audioUnlocked.current) return;
+    audioUnlocked.current = true;
+    a.src = SILENT_WAV;
+    a.play()
+      .then(() => a.pause())
+      .catch(() => {
+        audioUnlocked.current = false;
+      });
+  };
+
   const togglePlay = () => {
     const v = video.current;
     if (!v) return;
-    if (v.paused) void v.play();
-    else {
+    if (v.paused) {
+      unlockAudio();
+      void v.play();
+    } else {
       v.pause();
-      audio.current?.pause();
     }
+  };
+
+  // Whenever the video pauses (button, scrub, end), stop the voice and forget which one was
+  // playing, so resuming inside a voice range starts it again.
+  const onPause = () => {
+    setPlaying(false);
+    audio.current?.pause();
+    activeVoice.current = undefined;
+    if (video.current && !recordingRef.current) video.current.muted = false;
   };
 
   const save = async (fn: () => Promise<unknown>) => {
@@ -169,7 +197,8 @@ export function Editor({ clip, refresh }: { clip: Clip; refresh: () => Promise<v
     }
     v.muted = true;
     v.currentTime = start;
-    rec.start();
+    // Start capturing only once frames are moving, so the voice doesn't lead the picture.
+    v.addEventListener("playing", () => rec.state === "inactive" && rec.start(), { once: true });
     setMode({ kind: "recording", start });
     await v.play();
     v.onended = () => rec.state === "recording" && rec.stop();
@@ -177,7 +206,14 @@ export function Editor({ clip, refresh }: { clip: Clip; refresh: () => Promise<v
 
   const stopRecording = () => {
     video.current?.pause();
-    if (recorder.current?.state === "recording") recorder.current.stop();
+    const rec = recorder.current;
+    if (rec?.state === "recording") rec.stop();
+    else {
+      // Video never started playing, so nothing was captured.
+      rec?.stream.getTracks().forEach((t) => t.stop());
+      if (video.current) video.current.muted = false;
+      setMode({ kind: "idle" });
+    }
   };
 
   const overlayNow = clip.overlays.find((o) => t >= o.startSec && t < o.endSec);
@@ -195,7 +231,7 @@ export function Editor({ clip, refresh }: { clip: Clip; refresh: () => Promise<v
             preload="metadata"
             className="aspect-video w-full"
             onPlay={() => setPlaying(true)}
-            onPause={() => setPlaying(false)}
+            onPause={onPause}
           />
         ) : (
           <div className="aspect-video">

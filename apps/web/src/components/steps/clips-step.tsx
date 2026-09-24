@@ -1,34 +1,27 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef } from "react";
 import { toast } from "sonner";
 
 import { Button, ErrorNote, ProgressBar } from "@/components/ui";
 import { api } from "@/lib/api";
 import type { Clip, ProjectDetail } from "@/lib/types";
 import { fmtTime } from "@/lib/types";
+import { uploadStore, useUploads } from "@/lib/upload-store";
 import { localFiles, uploadClip, uploadParts } from "@/lib/uploader";
 
 type Props = { detail: ProjectDetail; refresh: () => Promise<void>; locked: boolean };
 
 export function ClipsStep({ detail, refresh, locked }: Props) {
   const input = useRef<HTMLInputElement>(null);
-  const [progress, setProgress] = useState<Record<string, number>>({});
-  const [pending, setPending] = useState(0);
-  const [active, setActive] = useState<Set<string>>(new Set());
-  const track = (id: string, on: boolean) =>
-    setActive((s) => {
-      const n = new Set(s);
-      if (on) n.add(id);
-      else n.delete(id);
-      return n;
-    });
+  const { active, progress, pending } = useUploads();
+  const track = (id: string, on: boolean) => (on ? uploadStore.start(id) : uploadStore.finish(id));
   const clips = detail.clips;
 
   const addFiles = async (files: FileList | null) => {
     if (!files?.length) return;
     const list = [...files];
-    setPending((n) => n + list.length);
+    uploadStore.pending(list.length);
     // One file at a time keeps mobile data stable; parts inside a file go in parallel.
     for (const file of list) {
       let clipId: string | null = null;
@@ -39,13 +32,13 @@ export function ClipsStep({ detail, refresh, locked }: Props) {
           (clip) => {
             clipId = clip.id;
             track(clip.id, true);
-            setPending((n) => n - 1);
+            uploadStore.pending(-1);
             void refresh();
           },
-          (f) => clipId && setProgress((p) => ({ ...p, [clipId!]: f })),
+          (f) => clipId && uploadStore.progress(clipId, f),
         );
       } catch (e) {
-        if (!clipId) setPending((n) => n - 1);
+        if (!clipId) uploadStore.pending(-1);
         toast.error(`${file.name}: ${(e as Error).message}`);
       }
       if (clipId) track(clipId, false);
@@ -61,7 +54,7 @@ export function ClipsStep({ detail, refresh, locked }: Props) {
     }
     track(clip.id, true);
     try {
-      await uploadParts(clip.id, file, (f) => setProgress((p) => ({ ...p, [clip.id]: f })));
+      await uploadParts(clip.id, file, (f) => uploadStore.progress(clip.id, f));
     } catch (e) {
       toast.error((e as Error).message);
     }

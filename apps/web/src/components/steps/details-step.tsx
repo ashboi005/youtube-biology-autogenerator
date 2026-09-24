@@ -15,25 +15,41 @@ export function DetailsStep({ project, refresh, locked }: Props) {
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const pending = useRef<Partial<Pick<Project, "title" | "description" | "privacy">>>({});
 
+  const send = async () => {
+    const body = pending.current;
+    pending.current = {};
+    if (!Object.keys(body).length) return;
+    try {
+      await api(`/projects/${project.id}`, { method: "PATCH", body });
+      setSaved("saved");
+      await refresh();
+    } catch (e) {
+      setSaved("idle");
+      toast.error((e as Error).message);
+    }
+  };
+
   const save = (patch: Partial<Pick<Project, "title" | "description" | "privacy">>) => {
     clearTimeout(timer.current);
     pending.current = { ...pending.current, ...patch };
     setSaved("saving");
-    timer.current = setTimeout(async () => {
-      const body = pending.current;
-      pending.current = {};
-      try {
-        await api(`/projects/${project.id}`, { method: "PATCH", body });
-        setSaved("saved");
-        await refresh();
-      } catch (e) {
-        setSaved("idle");
-        toast.error((e as Error).message);
-      }
-    }, 700);
+    timer.current = setTimeout(send, 700);
   };
 
-  useEffect(() => () => clearTimeout(timer.current), []);
+  // Never drop typing: flush when the card closes or the page is hidden/closed.
+  const sendRef = useRef(send);
+  sendRef.current = send;
+  useEffect(() => {
+    const flush = () => {
+      clearTimeout(timer.current);
+      void sendRef.current();
+    };
+    window.addEventListener("pagehide", flush);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      flush();
+    };
+  }, []);
 
   const field = "w-full rounded-2xl border-2 border-line bg-surface px-4 py-3 text-lg disabled:opacity-60";
 
