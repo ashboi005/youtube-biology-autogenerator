@@ -25,6 +25,7 @@
         "@youtube-biology-autogenerator/db": "workspace:*",
         "ai": "^7.0.113",
         "better-auth": "catalog:",
+        "drizzle-orm": "catalog:",
         "elysia": "^1.4.30",
         "googleapis": "^182.0.0",
         "merge-gateway-ai-sdk-provider": "^0.3.0",
@@ -43,7 +44,6 @@
       "name": "web",
       "version": "0.1.0",
       "dependencies": {
-        "@elysiajs/eden": "^1.4.9",
         "@swc/helpers": "^0.5.23",
         "@tanstack/react-form": "^1.33.5",
         "@uppy/aws-s3": "^6.1.0",
@@ -286,8 +286,6 @@
     "@drizzle-team/brocli": ["@drizzle-team/brocli@0.12.1", "", {}, "sha512-yHwomvolVafvUXhy5TdiJVkuNCxXn+bKOs2aWiWEQh/5YaV97Oa/abJz3dmx7lxgIUsUlS1Jl4mEfvJPo3YsVw=="],
 
     "@elysiajs/cors": ["@elysiajs/cors@1.4.2", "", { "peerDependencies": { "elysia": ">= 1.4.0" } }, "sha512-FTCcbH35brTLigF1W7BYySRZomgI/dBEMK9BgK9RP9Nez7zmpGh4koL/Yr1BFv8nYz7CfhRvcM8d/c+XnwMaVQ=="],
-
-    "@elysiajs/eden": ["@elysiajs/eden@1.4.9", "", { "peerDependencies": { "elysia": ">=1.4.19" } }, "sha512-3CKVD4ycVjB8nCNssfmhnUuq3SzSHkUES3v5PNCFr9LxIrx39/HVRAZ8z2sLxrFqzUs48dCBZaxoZzJ5UUVHDA=="],
 
     "@emnapi/runtime": ["@emnapi/runtime@1.11.3", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-Xz4Tpyki7XyrpbUK1jR1AhdAdaXyhhY4lZ3neLodmhpuWfy2PAQN5B46sAiU4liOXGLkHypn/qU+jvfWSCYYLA=="],
 

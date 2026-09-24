@@ -30,7 +30,8 @@
     "merge-gateway-ai-sdk-provider": "^0.3.0",
     "pg-boss": "^12.34.0",
     "varlock": "catalog:",
-    "zod": "catalog:"
+    "zod": "catalog:",
+    "drizzle-orm": "catalog:"
   },
   "devDependencies": {
     "@types/bun": "catalog:",
