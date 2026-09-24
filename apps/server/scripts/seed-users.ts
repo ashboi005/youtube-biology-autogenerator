@@ -37,7 +37,7 @@ if (existing) {
     name: name ?? email.split("@")[0]!,
     emailVerified: true,
     role,
-  }, undefined);
+  }, { method: "admin" });
   await ctx.internalAdapter.linkAccount({
     userId: created.id,
     providerId: "credential",
