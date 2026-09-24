@@ -1,0 +1,6 @@
+{
+  "extends": "@youtube-biology-autogenerator/config/tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true
+  }
+}
