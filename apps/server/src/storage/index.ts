@@ -33,6 +33,8 @@ export function s3(): S3Client {
     endpoint: ENV.B2_ENDPOINT,
     region: ENV.B2_REGION,
     credentials: { accessKeyId: ENV.B2_KEY_ID, secretAccessKey: ENV.B2_APP_KEY },
+    // Path-style works on B2 and on local S3 stand-ins (MinIO) alike.
+    forcePathStyle: true,
     // B2 doesn't support the SDK's default CRC32 checksums on presigned/multipart requests.
     requestChecksumCalculation: "WHEN_REQUIRED",
     responseChecksumValidation: "WHEN_REQUIRED",

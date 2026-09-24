@@ -1,1 +1,79 @@
 @import "@youtube-biology-autogenerator/ui/globals.css";
+
+/* Histology-stain palette: gram-stain violet for actions, eosin pink for cut/record,
+   leaf-ink text on a pale specimen-slide ground. */
+:root {
+  --slide: #eef3ef;
+  --surface: #ffffff;
+  --ink: #17261f;
+  --ink-soft: #4f6258;
+  --line: #c9d6ce;
+  --violet: #5b3fa0;
+  --violet-soft: #e7e0f5;
+  --eosin: #d6336c;
+  --eosin-soft: #fbe3ec;
+  --amber: #b86e00;
+  --amber-soft: #fbecd2;
+  --leaf: #2f7d4f;
+  --leaf-soft: #dcefe3;
+
+  --background: var(--slide);
+  --foreground: var(--ink);
+}
+
+@theme inline {
+  --color-slide: var(--slide);
+  --color-surface: var(--surface);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-line: var(--line);
+  --color-violet: var(--violet);
+  --color-violet-soft: var(--violet-soft);
+  --color-eosin: var(--eosin);
+  --color-eosin-soft: var(--eosin-soft);
+  --color-amber: var(--amber);
+  --color-amber-soft: var(--amber-soft);
+  --color-leaf: var(--leaf);
+  --color-leaf-soft: var(--leaf-soft);
+  --font-display: var(--font-bricolage), system-ui, sans-serif;
+  --font-body: var(--font-atkinson), system-ui, sans-serif;
+}
+
+/* In a layer so Tailwind utilities (also layered) can still override these. */
+@layer base {
+  html {
+    font-size: 17px;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background: var(--slide);
+    color: var(--ink);
+    font-family: var(--font-atkinson), system-ui, sans-serif;
+  }
+
+  h1,
+  h2,
+  h3,
+  button {
+    font-family: var(--font-bricolage), system-ui, sans-serif;
+  }
+
+  h1,
+  h2,
+  h3 {
+    letter-spacing: -0.01em;
+  }
+}
+
+:focus-visible {
+  outline: 3px solid var(--violet);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}

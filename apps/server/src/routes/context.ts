@@ -6,11 +6,15 @@ import { HttpError, isAdmin } from "./access";
 /** Adds `user` to handlers. `auth: true` = any signed-in user, `admin: true` = admin only. */
 export const authContext = new Elysia({ name: "auth-context" })
   .error({ HttpError })
-  .onError({ as: "global" }, ({ code, error, set }) => {
+  .onError({ as: "global" }, ({ code, error, set, request }) => {
     if (code === "HttpError") {
       set.status = error.status;
       return { error: error.message };
     }
+    if (code === "VALIDATION" || code === "NOT_FOUND") return;
+    console.error(`[api] ${request.method} ${new URL(request.url).pathname}`, error);
+    set.status = 500;
+    return { error: "Something went wrong on the server — try again" };
   })
   .macro({
     auth: {
