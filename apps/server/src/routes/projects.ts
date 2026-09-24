@@ -6,7 +6,7 @@ import { enqueueRender } from "../jobs/queue";
 import { createRateLimiter, generateThumbnailPrompt } from "../llm";
 import { db } from "../services";
 import { headExists, presignGet, presignPut, thumbKey } from "../storage";
-import { HttpError, isAdmin, validateSendable, youtubeTextProblems } from "./access";
+import { HttpError, isAdmin, validateSendable, youtubeState, youtubeTextProblems } from "./access";
 import { authContext } from "./context";
 import {
   claimForSend,
@@ -45,11 +45,12 @@ export const projectRoutes = new Elysia({ prefix: "/projects" })
     async ({ user, params }) => {
       const p = await loadProject(user, params.id);
       const [clips, yt] = await Promise.all([loadTimeline(p.id), getYoutubeConnection()]);
+      const youtube = youtubeState(yt);
       return {
         project: p,
         clips,
-        youtubeConnected: Boolean(yt),
-        problems: validateSendable({ ...p, clips, youtubeConnected: Boolean(yt) }),
+        youtubeConnected: youtube === "connected",
+        problems: validateSendable({ ...p, clips, youtube }),
       };
     },
     { auth: true },
@@ -154,7 +155,7 @@ export const projectRoutes = new Elysia({ prefix: "/projects" })
     async ({ user, params }) => {
       const p = await loadProject(user, params.id);
       const [clips, yt] = await Promise.all([loadTimeline(p.id), getYoutubeConnection()]);
-      const problems = validateSendable({ ...p, clips, youtubeConnected: Boolean(yt) });
+      const problems = validateSendable({ ...p, clips, youtube: youtubeState(yt) });
       if (problems.length) throw new HttpError(400, problems.join(". "));
       const claimed = await claimForSend(p.id);
       if (!claimed) throw new HttpError(409, "This video is already being processed");

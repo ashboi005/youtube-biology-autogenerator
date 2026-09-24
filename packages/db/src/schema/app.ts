@@ -131,6 +131,8 @@ export const youtubeConnection = pgTable("youtube_connection", {
   channelId: text("channel_id").notNull(),
   channelTitle: text("channel_title").notNull(),
   refreshTokenEnc: text("refresh_token_enc").notNull(),
+  /** Set when Google rejects the token; cleared on reconnect. */
+  needsReconnect: boolean("needs_reconnect").notNull().default(false),
   connectedAt: timestamp("connected_at").defaultNow().notNull(),
 });
 

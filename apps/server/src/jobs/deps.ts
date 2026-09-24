@@ -1,4 +1,4 @@
-import { project } from "@youtube-biology-autogenerator/db/schema/index";
+import { project, youtubeConnection } from "@youtube-biology-autogenerator/db/schema/index";
 import { eq } from "drizzle-orm";
 
 import { ENV } from "../env.server";
@@ -18,7 +18,7 @@ export const realDeps: JobDeps = {
     const [p] = await db.select().from(project).where(eq(project.id, projectId));
     if (!p) throw new Error(`Project ${projectId} not found`);
     const [clips, settings, yt] = await Promise.all([loadTimeline(p.id), getSettings(), getYoutubeConnection()]);
-    if (!yt || !ENV.TOKEN_ENC_KEY) throw new YoutubeError("YOUTUBE_NOT_CONNECTED", "YouTube isn't connected yet (ask admin)");
+    if (!yt || yt.needsReconnect || !ENV.TOKEN_ENC_KEY) throw new YoutubeError("YOUTUBE_NOT_CONNECTED", "YouTube isn't connected yet (ask admin)");
     return {
       project: p,
       clips: clips.filter((c) => c.uploadState === "ready"),
@@ -32,7 +32,17 @@ export const realDeps: JobDeps = {
   download: downloadToFile,
   probe,
   runFfmpeg,
-  uploadVideo,
+  async uploadVideo(input) {
+    try {
+      return await uploadVideo(input);
+    } catch (err) {
+      // Flag it so the admin sees a "reconnect" banner and Send explains why it's blocked.
+      if (err instanceof YoutubeError && err.code === "YOUTUBE_RECONNECT") {
+        await db.update(youtubeConnection).set({ needsReconnect: true }).where(eq(youtubeConnection.id, "default"));
+      }
+      throw err;
+    }
+  },
   setThumbnail,
   freeBytes,
   workDir: ENV.WORK_DIR,

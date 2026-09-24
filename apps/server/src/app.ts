@@ -6,6 +6,7 @@ import { clipRoutes } from "./routes/clips";
 import { authContext } from "./routes/context";
 import { editRoutes } from "./routes/edits";
 import { projectRoutes } from "./routes/projects";
+import { getYoutubeConnection } from "./routes/repo";
 import { settingsRoutes } from "./routes/settings";
 import { auth } from "./services";
 
@@ -25,9 +26,15 @@ export const app = new Elysia()
   .group("/api", (api) =>
     api
       .use(authContext)
-      .get("/me", ({ user }) => ({ id: user.id, name: user.name, email: user.email, role: user.role ?? "editor" }), {
-        auth: true,
-      })
+      .get(
+        "/me",
+        async ({ user }) => {
+          const role = user.role ?? "editor";
+          const yt = role === "admin" ? await getYoutubeConnection() : null;
+          return { id: user.id, name: user.name, email: user.email, role, youtubeNeedsReconnect: Boolean(yt?.needsReconnect) };
+        },
+        { auth: true },
+      )
       .use(projectRoutes)
       .use(clipRoutes)
       .use(editRoutes)

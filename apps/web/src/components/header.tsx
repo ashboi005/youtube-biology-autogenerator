@@ -21,6 +21,12 @@ export default function Header() {
   if (pathname.startsWith("/login")) return null;
 
   return (
+    <>
+    {me?.youtubeNeedsReconnect && (
+      <Link href="/settings" className="block bg-eosin px-4 py-3 text-center font-semibold text-white">
+        YouTube needs reconnecting — uploads are paused. Tap to fix.
+      </Link>
+    )}
     <header className="mx-auto flex w-full max-w-xl items-center justify-between px-4 pt-4 pb-2">
       <Link href="/projects" className="font-display text-xl font-bold text-ink">
         Biology Studio
@@ -45,5 +51,6 @@ export default function Header() {
         )}
       </nav>
     </header>
+    </>
   );
 }

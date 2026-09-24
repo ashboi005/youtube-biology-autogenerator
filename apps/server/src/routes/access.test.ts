@@ -39,13 +39,13 @@ describe("validateRange", () => {
 });
 
 describe("validateSendable", () => {
-  const ok = { title: "Mitosis", clips: [{ uploadState: "ready" }], youtubeConnected: true, status: "draft" };
+  const ok = { title: "Mitosis", clips: [{ uploadState: "ready" }], youtube: "connected" as const, status: "draft" };
   test("passes a complete project", () => {
     expect(validateSendable(ok)).toEqual([]);
   });
   test("lists every missing piece in plain English", () => {
     expect(
-      validateSendable({ title: " ", clips: [{ uploadState: "uploading" }], youtubeConnected: false, status: "draft" }),
+      validateSendable({ title: " ", clips: [{ uploadState: "uploading" }], youtube: "none", status: "draft" }),
     ).toEqual([
       "Add a title",
       "Wait for all clips to finish uploading",
@@ -69,7 +69,20 @@ describe("youtubeTextProblems", () => {
   });
   test("validateSendable includes text problems", () => {
     expect(
-      validateSendable({ title: "A > B", description: "", clips: [{ uploadState: "ready" }], youtubeConnected: true, status: "draft" }),
+      validateSendable({ title: "A > B", description: "", clips: [{ uploadState: "ready" }], youtube: "connected", status: "draft" }),
     ).toContain("Titles can't contain < or > (YouTube rejects them)");
+  });
+});
+
+import { youtubeState } from "./access";
+
+describe("youtubeState", () => {
+  test("revoked connection is not usable and says why", () => {
+    expect(youtubeState(null)).toBe("none");
+    expect(youtubeState({ needsReconnect: false })).toBe("connected");
+    expect(youtubeState({ needsReconnect: true })).toBe("reconnect");
+    expect(
+      validateSendable({ title: "t", clips: [{ uploadState: "ready" }], youtube: "reconnect", status: "draft" }),
+    ).toEqual(["YouTube needs reconnecting (ask admin)"]);
   });
 });

@@ -43,7 +43,9 @@ export const settingsRoutes = new Elysia()
         thumbnailPromptTemplate: s.thumbnailPromptTemplate ?? DEFAULT_THUMBNAIL_TEMPLATE,
         introUrl: s.introKey ? await presignGet(s.introKey) : null,
         outroUrl: s.outroKey ? await presignGet(s.outroKey) : null,
-        youtube: yt ? { channelTitle: yt.channelTitle, connectedAt: yt.connectedAt } : null,
+        youtube: yt
+          ? { channelTitle: yt.channelTitle, connectedAt: yt.connectedAt, needsReconnect: yt.needsReconnect }
+          : null,
       };
     },
     { admin: true },
@@ -119,7 +121,12 @@ export const settingsRoutes = new Elysia()
       if (!ENV.TOKEN_ENC_KEY) throw new Error("TOKEN_ENC_KEY missing");
       try {
         const { refreshToken, channelId, channelTitle } = await exchangeCode(query.code);
-        const values = { channelId, channelTitle, refreshTokenEnc: encrypt(refreshToken, ENV.TOKEN_ENC_KEY) };
+        const values = {
+          channelId,
+          channelTitle,
+          refreshTokenEnc: encrypt(refreshToken, ENV.TOKEN_ENC_KEY),
+          needsReconnect: false,
+        };
         await db
           .insert(youtubeConnection)
           .values({ id: "default", ...values })

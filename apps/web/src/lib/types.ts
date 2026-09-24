@@ -42,7 +42,7 @@ export type ProjectDetail = {
   problems: string[];
 };
 
-export type Me = { id: string; name: string; email: string; role: "admin" | "editor" };
+export type Me = { id: string; name: string; email: string; role: "admin" | "editor"; youtubeNeedsReconnect: boolean };
 
 export const isBusy = (s: ProjectStatus) => s === "queued" || s === "rendering" || s === "uploading";
 

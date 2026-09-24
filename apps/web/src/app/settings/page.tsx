@@ -12,7 +12,7 @@ type Settings = {
   thumbnailPromptTemplate: string;
   introUrl: string | null;
   outroUrl: string | null;
-  youtube: { channelTitle: string; connectedAt: string } | null;
+  youtube: { channelTitle: string; connectedAt: string; needsReconnect: boolean } | null;
 };
 
 export default function SettingsPage() {
@@ -54,7 +54,7 @@ export default function SettingsPage() {
 
       <Panel>
         <h2 className="mb-2 text-xl font-bold">YouTube</h2>
-        {s.youtube ? (
+        {s.youtube && !s.youtube.needsReconnect ? (
           <div className="flex flex-col gap-3">
             <p>
               Connected to <b>{s.youtube.channelTitle}</b>.
@@ -72,6 +72,11 @@ export default function SettingsPage() {
           </div>
         ) : (
           <div className="flex flex-col gap-3">
+            {s.youtube?.needsReconnect && (
+              <p className="rounded-2xl bg-eosin-soft px-4 py-3">
+                Google stopped accepting the connection to <b>{s.youtube.channelTitle}</b>. Reconnect to resume uploads.
+              </p>
+            )}
             <p className="text-ink-soft">
               Sign in with the Google account that owns the channel. Google will warn that the app is unverified —
               that's expected for a private app. Custom thumbnails need a phone-verified channel.
@@ -82,7 +87,7 @@ export default function SettingsPage() {
                 location.href = url;
               }}
             >
-              Connect YouTube
+              {s.youtube?.needsReconnect ? "Reconnect YouTube" : "Connect YouTube"}
             </Button>
           </div>
         )}

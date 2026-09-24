@@ -45,7 +45,7 @@ export function validateSendable(p: {
   title: string;
   description?: string;
   clips: { uploadState: string }[];
-  youtubeConnected: boolean;
+  youtube: YoutubeState;
   status: string;
 }): string[] {
   const problems: string[] = [];
@@ -54,6 +54,14 @@ export function validateSendable(p: {
   problems.push(...youtubeTextProblems(p.title, p.description ?? ""));
   if (p.clips.length === 0) problems.push("Add at least one clip");
   else if (p.clips.some((c) => c.uploadState !== "ready")) problems.push("Wait for all clips to finish uploading");
-  if (!p.youtubeConnected) problems.push("YouTube isn't connected yet (ask admin)");
+  if (p.youtube === "none") problems.push("YouTube isn't connected yet (ask admin)");
+  if (p.youtube === "reconnect") problems.push("YouTube needs reconnecting (ask admin)");
   return problems;
+}
+
+export type YoutubeState = "connected" | "reconnect" | "none";
+
+export function youtubeState(conn: { needsReconnect: boolean } | null): YoutubeState {
+  if (!conn) return "none";
+  return conn.needsReconnect ? "reconnect" : "connected";
 }
