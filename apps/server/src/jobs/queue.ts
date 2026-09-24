@@ -13,8 +13,9 @@ export function getBoss(): Promise<PgBoss> {
     b.on("error", (err) => console.error("[pg-boss]", err));
     await b.start();
     await b.createQueue(RENDER_QUEUE, {
-      retryLimit: 1,
-      retryDelay: 30,
+      // No automatic retries: a failed job shows "Try again" to the user instead of
+      // silently re-rendering (CPU is scarce). Stuck jobs are reset on worker start.
+      retryLimit: 0,
       expireInSeconds: 2 * 60 * 60, // 15-min video: ~10 min render + upload, with headroom
     }).catch(() => {}); // already exists
     return b;
