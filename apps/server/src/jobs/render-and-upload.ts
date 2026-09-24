@@ -1,7 +1,7 @@
 import { mkdir, rm, statfs } from "node:fs/promises";
 import { join } from "node:path";
 
-import { buildFfmpegArgs, type Bumper } from "../render/args";
+import { buildAssemblyArgs, buildClipPassArgs, type Bumper } from "../render/args";
 import type { ProbeResult } from "../render/probe";
 import { buildPlan, type ClipInput, type OverlayPosition } from "../timeline";
 import { YoutubeError, type UploadInput } from "../youtube/client";
@@ -58,7 +58,8 @@ class UserFacingError extends Error {}
 const DISK_FACTOR = 3;
 const PROGRESS_WRITE_MS = 2000;
 const UPLOAD_ATTEMPTS = 3;
-const RENDER_SHARE = 80; // progress 0-80 render, 80-100 upload
+const CLIP_PASS_SHARE = 55; // progress: 0-55 per-clip passes, 55-80 assembly, 80-100 upload
+const RENDER_SHARE = 80;
 
 const extOf = (key: string) => key.slice(key.lastIndexOf(".") + 1) || "bin";
 
@@ -77,7 +78,18 @@ function throttled(fn: (pct: number) => void) {
 
 export async function renderAndUpload(projectId: string, jobId: string, deps: JobDeps): Promise<void> {
   const dir = join(deps.workDir, jobId);
-  const set = (patch: StatusPatch) => deps.setStatus(projectId, patch);
+  // Progress writes are best-effort and serialized: a DB blip must not crash the worker,
+  // and no stale progress may land after a status change.
+  let progressChain: Promise<void> = Promise.resolve();
+  const progress = throttled((pct: number) => {
+    progressChain = progressChain
+      .then(() => deps.setStatus(projectId, { progress: Math.floor(pct) }))
+      .catch((err) => console.warn("[job] progress write failed", err));
+  });
+  const set = async (patch: StatusPatch) => {
+    await progressChain;
+    await deps.setStatus(projectId, patch);
+  };
 
   try {
     await set({ status: "rendering", progress: 0, errorMessage: null });
@@ -91,34 +103,6 @@ export async function renderAndUpload(projectId: string, jobId: string, deps: Jo
     }
     await mkdir(dir, { recursive: true });
 
-    // 2. Stream inputs to disk.
-    const clipPaths: Record<string, string> = {};
-    const voPaths: Record<string, string> = {};
-    try {
-      for (const c of clips) {
-        clipPaths[c.id] = join(dir, `clip-${c.id}.${extOf(c.objectKey)}`);
-        await deps.download(c.objectKey, clipPaths[c.id]!);
-        for (const v of c.voiceovers.filter((v) => v.ready)) {
-          voPaths[v.id] = join(dir, `vo-${v.id}.${extOf(v.objectKey)}`);
-          await deps.download(v.objectKey, voPaths[v.id]!);
-        }
-      }
-    } catch (err) {
-      console.error("[job] download failed", err);
-      throw new UserFacingError("Couldn't fetch your clips from storage — tap Try again");
-    }
-
-    const bumper = async (key: string | null, name: string): Promise<Bumper | undefined> => {
-      if (!key) return undefined;
-      const path = join(dir, `${name}.${extOf(key)}`);
-      await deps.download(key, path);
-      const info = await deps.probe(path);
-      return { path, duration: info.durationSec, hasAudio: info.hasAudio };
-    };
-    const intro = await bumper(job.settings.introKey, "intro");
-    const outro = await bumper(job.settings.outroKey, "outro");
-
-    // 3. Plan + render.
     const plan = buildPlan(
       clips.map(
         (c): ClipInput => ({
@@ -134,10 +118,64 @@ export async function renderAndUpload(projectId: string, jobId: string, deps: Jo
     );
     if (plan.clips.length === 0) throw new UserFacingError("Every clip is fully cut — nothing left to upload");
 
+    const fetchFile = async (key: string, path: string) => {
+      try {
+        await deps.download(key, path);
+      } catch (err) {
+        console.error("[job] download failed", key, err);
+        throw new UserFacingError("Couldn't fetch your clips from storage — tap Try again");
+      }
+    };
+    const ffmpeg = async (args: string[], duration: number, onPct: (pct: number) => void) => {
+      try {
+        await deps.runFfmpeg(args, duration, onPct);
+      } catch (err) {
+        console.error("[job] ffmpeg failed", err);
+        throw new UserFacingError("Rendering failed — tap Try again, or ask for help");
+      }
+    };
+
+    // 2. Pass 1, one clip at a time: download → cut/normalize to an intermediate → delete the original.
+    //    Only one full-resolution decoder is open at once, and originals don't pile up on disk.
+    const segmentPaths: Record<string, string> = {};
+    const byId = new Map(clips.map((c) => [c.id, c]));
+    let doneSec = 0;
+    for (const planned of plan.clips) {
+      const c = byId.get(planned.id)!;
+      const src = join(dir, `clip-${c.id}.${extOf(c.objectKey)}`);
+      await fetchFile(c.objectKey, src);
+      const seg = join(dir, `seg-${c.id}.mkv`);
+      const pass = buildClipPassArgs({ clip: planned, inPath: src, outPath: seg });
+      await ffmpeg(pass.args, pass.totalDuration, (pct) =>
+        progress(((doneSec + (pct / 100) * planned.outputDuration) / plan.contentDuration) * CLIP_PASS_SHARE),
+      );
+      await rm(src, { force: true });
+      segmentPaths[c.id] = seg;
+      doneSec += planned.outputDuration;
+    }
+
+    // 3. Pass 2: assemble with voice, text, cleanup and intro/outro.
+    const voPaths: Record<string, string> = {};
+    for (const c of clips) {
+      for (const v of c.voiceovers.filter((v) => v.ready)) {
+        voPaths[v.id] = join(dir, `vo-${v.id}.${extOf(v.objectKey)}`);
+        await fetchFile(v.objectKey, voPaths[v.id]!);
+      }
+    }
+    const bumper = async (key: string | null, name: string): Promise<Bumper | undefined> => {
+      if (!key) return undefined;
+      const path = join(dir, `${name}.${extOf(key)}`);
+      await fetchFile(key, path);
+      const info = await deps.probe(path);
+      return { path, duration: info.durationSec, hasAudio: info.hasAudio };
+    };
+    const intro = await bumper(job.settings.introKey, "intro");
+    const outro = await bumper(job.settings.outroKey, "outro");
+
     const outPath = join(dir, "final.mp4");
-    const cmd = buildFfmpegArgs({
+    const cmd = buildAssemblyArgs({
       plan,
-      clipPaths,
+      segmentPaths,
       voPaths,
       intro,
       outro,
@@ -148,22 +186,13 @@ export async function renderAndUpload(projectId: string, jobId: string, deps: Jo
       audioCleanup: job.settings.audioCleanup,
     });
     for (const f of cmd.textFiles) await Bun.write(f.path, f.content);
-
-    const renderProgress = throttled((pct) => {
-      void set({ progress: Math.floor((pct * RENDER_SHARE) / 100) });
-    });
-    try {
-      await deps.runFfmpeg(cmd.args, cmd.totalDuration, renderProgress);
-    } catch (err) {
-      console.error("[job] ffmpeg failed", err);
-      throw new UserFacingError("Rendering failed — tap Try again, or ask for help");
-    }
+    await ffmpeg(cmd.args, cmd.totalDuration, (pct) =>
+      progress(CLIP_PASS_SHARE + (pct / 100) * (RENDER_SHARE - CLIP_PASS_SHARE)),
+    );
+    for (const p of Object.values(segmentPaths)) await rm(p, { force: true });
 
     // 4. Upload to YouTube (retry transient failures while the file is still on disk).
     await set({ status: "uploading", progress: RENDER_SHARE });
-    const uploadProgress = throttled((pct) => {
-      void set({ progress: RENDER_SHARE + Math.floor((pct * (100 - RENDER_SHARE)) / 100) });
-    });
     let videoId: string | undefined;
     for (let attempt = 1; !videoId; attempt++) {
       try {
@@ -173,7 +202,7 @@ export async function renderAndUpload(projectId: string, jobId: string, deps: Jo
           title: job.project.title,
           description: job.project.description,
           privacy: job.project.privacy,
-          onProgress: (f) => uploadProgress(Math.min(99, Math.floor(f * 100))),
+          onProgress: (f) => progress(RENDER_SHARE + Math.min(0.99, f) * (100 - RENDER_SHARE)),
         });
       } catch (err) {
         const retryable = err instanceof YoutubeError && err.code === "YOUTUBE_OTHER";

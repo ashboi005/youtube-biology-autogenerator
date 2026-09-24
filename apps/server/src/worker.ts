@@ -2,21 +2,19 @@
  * Render worker: one job at a time. Run as its own process/container:
  *   bun run src/worker.ts
  */
-import { mkdir, rm } from "node:fs/promises";
-
 import { project } from "@youtube-biology-autogenerator/db/schema/index";
 import { inArray } from "drizzle-orm";
 
 import { ENV } from "./env.server";
 import { realDeps } from "./jobs/deps";
+import { emptyDir } from "./jobs/fs";
 import { getBoss, RENDER_QUEUE, type RenderJobData } from "./jobs/queue";
 import { renderAndUpload } from "./jobs/render-and-upload";
 import { db } from "./services";
 
 // Crash recovery: nothing can be running before we start, so wipe scratch space and
 // mark any in-flight projects as failed so the user sees "Try again".
-await rm(ENV.WORK_DIR, { recursive: true, force: true });
-await mkdir(ENV.WORK_DIR, { recursive: true });
+await emptyDir(ENV.WORK_DIR);
 await db
   .update(project)
   .set({ status: "failed", errorMessage: "The server restarted while processing — tap Try again" })

@@ -175,4 +175,47 @@ describe("renderAndUpload", () => {
     expect(statuses.at(-1)).toMatchObject({ status: "failed", errorMessage: "Rendering failed — tap Try again, or ask for help" });
     expect(await readdir(workRoot)).toEqual([]);
   });
+
+  test("failing progress writes never crash the job or land after the final status", async () => {
+    const { d, statuses } = deps({
+      setStatus: async (_id, patch) => {
+        if (Object.keys(patch).length === 1 && "progress" in patch) throw new Error("db blip");
+        statuses.push(patch);
+      },
+      runFfmpeg: async (args, _t, onProgress) => {
+        onProgress(50);
+        onProgress(100);
+        await Bun.write(args.at(-1)!, "fake");
+      },
+      uploadVideo: async (i) => {
+        i.onProgress(1);
+        return "yt7";
+      },
+      setThumbnail: async () => {},
+    });
+    await renderAndUpload("p1", "job7", d);
+    expect(statuses.at(-1)).toMatchObject({ status: "done", youtubeVideoId: "yt7" });
+  });
+
+  test("renders clips one at a time and deletes each original before the next download", async () => {
+    const events: string[] = [];
+    const { d } = deps({
+      download: async (key, path) => {
+        events.push(`dl:${key}`);
+        await copyFile(join(fixtures, files[key]!), path);
+      },
+      runFfmpeg: async (args) => {
+        const inputs = args.filter((_, i) => args[i - 1] === "-i");
+        for (const p of inputs) events.push(`in:${(await Bun.file(p).exists()) ? "present" : "missing"}`);
+        events.push(`ff:${args.includes("concat") ? "assembly" : "clip"}`);
+        await Bun.write(args.at(-1)!, "fake");
+      },
+      uploadVideo: async () => "yt8",
+    });
+    await renderAndUpload("p1", "job8", d);
+    const order = events.filter((e) => e.startsWith("dl:") || e.startsWith("ff:"));
+    expect(order.slice(0, 4)).toEqual(["dl:a", "ff:clip", "dl:b", "ff:clip"]);
+    expect(order).toContain("ff:assembly");
+    expect(await readdir(workRoot)).toEqual([]);
+  });
 });
