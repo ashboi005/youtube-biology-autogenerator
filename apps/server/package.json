@@ -9,7 +9,12 @@
     "dev": "bun run --hot src/index.ts",
     "start": "bun run dist/index.mjs",
     "env:generate": "varlock codegen",
-    "auth:generate": "varlock run -- bun x auth@latest generate --config src/services.ts --output ../../packages/db/src/schema/auth.ts --yes"
+    "auth:generate": "varlock run -- bun x auth@latest generate --config src/services.ts --output ../../packages/db/src/schema/auth.ts --yes",
+    "test": "bun test",
+    "worker": "bun run src/worker.ts",
+    "dev:worker": "bun run --watch src/worker.ts",
+    "seed:users": "bun run scripts/seed-users.ts",
+    "b2:setup": "bun run scripts/b2-setup.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1139.0",
