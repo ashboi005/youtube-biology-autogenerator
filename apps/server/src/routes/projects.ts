@@ -6,9 +6,16 @@ import { enqueueRender } from "../jobs/queue";
 import { createRateLimiter, generateThumbnailPrompt } from "../llm";
 import { db } from "../services";
 import { headExists, presignGet, presignPut, thumbKey } from "../storage";
-import { HttpError, isAdmin, validateSendable } from "./access";
+import { HttpError, isAdmin, validateSendable, youtubeTextProblems } from "./access";
 import { authContext } from "./context";
-import { getSettings, getYoutubeConnection, loadEditableProject, loadProject, loadTimeline } from "./repo";
+import {
+  claimForSend,
+  getSettings,
+  getYoutubeConnection,
+  loadEditableProject,
+  loadProject,
+  loadTimeline,
+} from "./repo";
 
 const llmLimit = createRateLimiter(10, 60 * 60 * 1000);
 
@@ -50,7 +57,9 @@ export const projectRoutes = new Elysia({ prefix: "/projects" })
   .patch(
     "/:id",
     async ({ user, params, body }) => {
-      await loadEditableProject(user, params.id);
+      const current = await loadEditableProject(user, params.id);
+      const problems = youtubeTextProblems(body.title ?? current.title, body.description ?? current.description);
+      if (problems.length) throw new HttpError(400, problems.join(". "));
       const [p] = await db.update(project).set(body).where(eq(project.id, params.id)).returning();
       return p!;
     },
@@ -147,13 +156,19 @@ export const projectRoutes = new Elysia({ prefix: "/projects" })
       const [clips, yt] = await Promise.all([loadTimeline(p.id), getYoutubeConnection()]);
       const problems = validateSendable({ ...p, clips, youtubeConnected: Boolean(yt) });
       if (problems.length) throw new HttpError(400, problems.join(". "));
-      const [updated] = await db
-        .update(project)
-        .set({ status: "queued", progress: 0, errorMessage: null, youtubeVideoId: null, sentAt: new Date() })
-        .where(eq(project.id, p.id))
-        .returning();
-      await enqueueRender(p.id);
-      return updated!;
+      const claimed = await claimForSend(p.id);
+      if (!claimed) throw new HttpError(409, "This video is already being processed");
+      try {
+        await enqueueRender(p.id);
+      } catch (err) {
+        console.error("[send] enqueue failed", err);
+        await db
+          .update(project)
+          .set({ status: "failed", errorMessage: "Couldn't start — tap Try again" })
+          .where(eq(project.id, p.id));
+        throw new HttpError(503, "Couldn't start — tap Try again");
+      }
+      return claimed;
     },
     { auth: true },
   );

@@ -146,3 +146,8 @@ export function buildPlan(clips: ClipInput[]): RenderPlan {
   plan.contentDuration = round(offset);
   return plan;
 }
+
+/** Ids of ranges that overlap `r` (touching edges don't count). */
+export function overlappingIds(existing: (Range & { id: string })[], r: Range): string[] {
+  return existing.filter((e) => e.start < r.end - EPS && r.start < e.end - EPS).map((e) => e.id);
+}

@@ -145,3 +145,19 @@ describe("buildPlan", () => {
     expect(plan.contentDuration).toBe(5);
   });
 });
+
+import { overlappingIds } from "./index";
+
+describe("overlappingIds (a new voice recording replaces the ones it overlaps)", () => {
+  const existing = [
+    { id: "a", start: 0, end: 5 },
+    { id: "b", start: 10, end: 15 },
+    { id: "c", start: 20, end: 25 },
+  ];
+  test("finds partial and full overlaps, ignores touching edges", () => {
+    expect(overlappingIds(existing, { start: 4, end: 12 })).toEqual(["a", "b"]);
+    expect(overlappingIds(existing, { start: 5, end: 10 })).toEqual([]);
+    expect(overlappingIds(existing, { start: 19, end: 30 })).toEqual(["c"]);
+    expect(overlappingIds(existing, { start: 11, end: 12 })).toEqual(["b"]);
+  });
+});

@@ -205,6 +205,7 @@ export async function renderAndUpload(projectId: string, jobId: string, deps: Jo
           onProgress: (f) => progress(RENDER_SHARE + Math.min(0.99, f) * (100 - RENDER_SHARE)),
         });
       } catch (err) {
+        // Only transient failures are retried; the resumable upload already retried chunks internally.
         const retryable = err instanceof YoutubeError && err.code === "YOUTUBE_OTHER";
         if (!retryable || attempt >= UPLOAD_ATTEMPTS) {
           throw new UserFacingError(err instanceof YoutubeError ? err.message : "YouTube upload failed — tap Try again");

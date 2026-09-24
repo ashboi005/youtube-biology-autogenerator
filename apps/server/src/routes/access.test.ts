@@ -55,3 +55,21 @@ describe("validateSendable", () => {
     expect(validateSendable({ ...ok, status: "rendering" })).toContain("This video is already being processed");
   });
 });
+
+import { youtubeTextProblems } from "./access";
+
+describe("youtubeTextProblems", () => {
+  test("rejects angle brackets YouTube refuses, in plain English", () => {
+    expect(youtubeTextProblems("DNA -> RNA", "ok")).toEqual(["Titles can't contain < or > (YouTube rejects them)"]);
+    expect(youtubeTextProblems("ok", "a <b>")).toEqual(["Descriptions can't contain < or > (YouTube rejects them)"]);
+  });
+  test("checks byte length, not character length", () => {
+    expect(youtubeTextProblems("ok", "é".repeat(2600))).toEqual(["The description is too long for YouTube"]);
+    expect(youtubeTextProblems("ok", "e".repeat(5000))).toEqual([]);
+  });
+  test("validateSendable includes text problems", () => {
+    expect(
+      validateSendable({ title: "A > B", description: "", clips: [{ uploadState: "ready" }], youtubeConnected: true, status: "draft" }),
+    ).toContain("Titles can't contain < or > (YouTube rejects them)");
+  });
+});

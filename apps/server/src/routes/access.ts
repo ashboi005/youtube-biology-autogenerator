@@ -27,8 +27,23 @@ export function validateRange(start: number, end: number, duration: number): voi
   }
 }
 
+const TITLE_BYTES = 100;
+const DESCRIPTION_BYTES = 5000;
+const bytes = (s: string) => new TextEncoder().encode(s).length;
+
+/** Things YouTube will always reject, caught before a multi-GB upload. */
+export function youtubeTextProblems(title: string, description: string): string[] {
+  const problems: string[] = [];
+  if (/[<>]/.test(title)) problems.push("Titles can't contain < or > (YouTube rejects them)");
+  if (bytes(title) > TITLE_BYTES) problems.push("The title is too long for YouTube");
+  if (/[<>]/.test(description)) problems.push("Descriptions can't contain < or > (YouTube rejects them)");
+  if (bytes(description) > DESCRIPTION_BYTES) problems.push("The description is too long for YouTube");
+  return problems;
+}
+
 export function validateSendable(p: {
   title: string;
+  description?: string;
   clips: { uploadState: string }[];
   youtubeConnected: boolean;
   status: string;
@@ -36,6 +51,7 @@ export function validateSendable(p: {
   const problems: string[] = [];
   if (!isEditable(p.status)) problems.push("This video is already being processed");
   if (!p.title.trim()) problems.push("Add a title");
+  problems.push(...youtubeTextProblems(p.title, p.description ?? ""));
   if (p.clips.length === 0) problems.push("Add at least one clip");
   else if (p.clips.some((c) => c.uploadState !== "ready")) problems.push("Wait for all clips to finish uploading");
   if (!p.youtubeConnected) problems.push("YouTube isn't connected yet (ask admin)");

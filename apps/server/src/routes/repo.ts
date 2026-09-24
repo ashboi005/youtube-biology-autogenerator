@@ -7,7 +7,7 @@ import {
   voiceover,
   youtubeConnection,
 } from "@youtube-biology-autogenerator/db/schema/index";
-import { asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, notInArray } from "drizzle-orm";
 
 import { db } from "../services";
 import { type Actor, canAccessProject, HttpError, isEditable } from "./access";
@@ -66,4 +66,17 @@ export async function loadTimeline(projectId: string) {
     overlays: overlays.filter((x) => x.clipId === c.id),
     voiceovers: voiceovers.filter((x) => x.clipId === c.id),
   }));
+}
+
+/**
+ * Atomically move a project into the queue. Returns null if it's already queued/rendering/uploading,
+ * so two quick taps (or two tabs) can't start two renders and two YouTube uploads.
+ */
+export async function claimForSend(projectId: string): Promise<Project | null> {
+  const [row] = await db
+    .update(project)
+    .set({ status: "queued", progress: 0, errorMessage: null, sentAt: new Date() })
+    .where(and(eq(project.id, projectId), notInArray(project.status, ["queued", "rendering", "uploading"])))
+    .returning();
+  return row ?? null;
 }

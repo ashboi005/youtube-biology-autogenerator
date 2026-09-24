@@ -1,9 +1,10 @@
 import { cut, overlay, voiceover } from "@youtube-biology-autogenerator/db/schema/index";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { Elysia, t } from "elysia";
 
 import { db } from "../services";
 import { presignGet, presignPut, voKey } from "../storage";
+import { overlappingIds } from "../timeline";
 import { type Actor, HttpError, validateRange } from "./access";
 import { authContext } from "./context";
 import { loadClip } from "./repo";
@@ -81,6 +82,15 @@ export const editRoutes = new Elysia()
       const { clip: c, project: p, duration } = await editableClip(user, params.id);
       validateRange(body.startSec, body.endSec, duration);
       if (!body.contentType.startsWith("audio/")) throw new HttpError(400, "That recording isn't audio");
+      // A new recording replaces any earlier recording it overlaps (never mix two takes).
+      const existing = await db.select().from(voiceover).where(eq(voiceover.clipId, c.id));
+      const replaced = overlappingIds(
+        existing.map((v) => ({ id: v.id, start: v.startSec, end: v.endSec })),
+        { start: body.startSec, end: body.endSec },
+      );
+      if (replaced.length) {
+        await db.delete(voiceover).where(and(eq(voiceover.clipId, c.id), inArray(voiceover.id, replaced)));
+      }
       const id = crypto.randomUUID();
       const key = voKey(p.id, id, body.contentType);
       const [row] = await db
