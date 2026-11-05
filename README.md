@@ -1,129 +1,87 @@
-# youtube-biology-autogenerator
+# Biology Studio
 
-This project was created with [Better-T-Stack](https://github.com/AmanVarshney01/create-better-t-stack), a modern TypeScript stack that combines Next.js, Elysia, and more.
+A private, phone-first dashboard for turning iPhone clips into a YouTube upload:
+**Clips → Edit (cut / text / re-record voice) → Title & description → Thumbnail (ChatGPT prompt) → Send to YouTube (private)**.
 
-## Features
+- `apps/web` — Next.js UI (what she uses on her phone)
+- `apps/server` — Elysia API (`src/index.ts`) and the render worker (`src/worker.ts`)
+- `packages/db` — Drizzle schema (Postgres); `packages/auth` — Better Auth (sign-up disabled)
 
-- **TypeScript** - For type safety and improved developer experience
-- **Next.js** - Full-stack React framework
-- **TailwindCSS** - Utility-first CSS for rapid UI development
-- **Shared UI package** - shadcn/ui primitives live in `packages/ui`
-- **Elysia** - Type-safe, high-performance framework
-- **Bun** - Runtime environment
-- **Drizzle** - TypeScript-first ORM
-- **PostgreSQL** - Database engine
-- **Authentication** - Better-Auth
+Design: `docs/superpowers/specs/2026-09-24-youtube-autogenerator-design.md`
 
-## Getting Started
+## How a video is made
 
-First, install the dependencies:
+1. The phone uploads clips **directly to Backblaze B2** (multipart, presigned URLs). The server never handles video bytes.
+2. Edits are saved as data (cut ranges, text, voice recordings), stored against each clip's own timeline.
+3. **Send** queues a job (pg-boss, in Postgres). The worker streams the files to disk, runs a **single ffmpeg pass**
+   (intro fade, cuts, text, voice swap, gentle audio cleanup, 1080p30 H.264), uploads to YouTube as **private**,
+   sets the thumbnail, then deletes its working folder.
+4. B2 deletes uploads automatically after ~16 days (lifecycle rule). That retention keeps download traffic
+   inside B2's free allowance, so the bill stays at about $0.
+
+## Local development
 
 ```bash
 bun install
-```
-
-## Database Setup
-
-This project uses PostgreSQL with Drizzle ORM.
-
-1. Make sure you have a PostgreSQL database set up.
-2. Update your `apps/server/.env` file with your PostgreSQL connection details.
-
-3. Apply the schema to your database:
-
-```bash
+docker compose up -d postgres                   # Postgres on localhost:5433
+# Local S3 stand-in for B2:
+docker run -d --name ytbio-minio -p 127.0.0.1:9000:9000 \
+  -e MINIO_ROOT_USER=devkey -e MINIO_ROOT_PASSWORD=devsecret123 quay.io/minio/minio server /data
+# create bucket "ytbio-dev" (e.g. with the AWS CLI or MinIO console), then in apps/server/.env:
+#   B2_ENDPOINT=http://localhost:9000  B2_REGION=us-east-1  B2_BUCKET=ytbio-dev
+#   B2_KEY_ID=devkey  B2_APP_KEY=devsecret123
 bun run db:push
+cd apps/server && bun run seed:users -- --email you@example.com --password '...' --role admin
+bun run dev                     # web :3001, api :3000
+cd apps/server && bun run dev:worker
+cd apps/server && bun test      # unit + real-ffmpeg integration tests
 ```
 
-Then, run the development server:
+Homebrew's ffmpeg has no `drawtext`/`zscale`, so text overlays and HDR only render in the Docker worker image (or a full ffmpeg build).
+The integration test skips overlays when `drawtext` is missing.
 
+## Production setup (one time)
+
+### 1. Backblaze B2
+1. Create a **private** bucket. Create an application key **restricted to that bucket** (read + write).
+2. Put the values in `apps/server/.env`: `B2_ENDPOINT` (e.g. `https://s3.us-west-004.backblazeb2.com`), `B2_REGION` (`us-west-004`), `B2_BUCKET`, `B2_KEY_ID`, `B2_APP_KEY`.
+3. `cd apps/server && bun run b2:setup`. This sets the lifecycle rule (B2 native API) and CORS for the dashboard origin (S3 API).
+   CORS rules made in the B2 web UI **don't** apply to S3 presigned uploads, so use this script.
+
+### 2. YouTube (Google Cloud)
+1. Create a project and enable **YouTube Data API v3**.
+2. OAuth consent screen: External, add your Google account as a test user, then **Publish app → In production**.
+   (In Testing mode refresh tokens expire after 7 days.) The "unverified app" warning shows once when you connect. That's expected.
+3. Create an OAuth client (Web application). Set the redirect URI to `https://<api-domain>/api/youtube/callback`.
+4. Set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, and `TOKEN_ENC_KEY` (`openssl rand -hex 32`).
+5. Make sure the channel is **phone-verified**; custom thumbnails need it.
+6. Sign in as admin → **Settings → Connect YouTube**.
+
+Videos from an unaudited API project are locked to **private**. She publishes from YouTube Studio (the app links there).
+
+### 3. LLM (Merge Gateway)
+Set `MERGE_GATEWAY_API_KEY` and optionally `MERGE_MODEL` (default `openai/gpt-5.2`).
+Edit the thumbnail prompt template in **Settings**.
+
+### 4. Accounts
+Sign-up is disabled. Create accounts from the server:
 ```bash
-bun run dev
+cd apps/server
+bun run seed:users -- --email mom@example.com --name "Mom" --password '...'          # editor
+bun run seed:users -- --email you@example.com --password '...' --role admin
 ```
+Re-running with the same email resets the password.
 
-Open [http://localhost:3001](http://localhost:3001) in your browser to see the web application.
-The API is running at [http://localhost:3000](http://localhost:3000).
-
-## UI Customization
-
-React web apps in this stack share shadcn/ui primitives through `packages/ui`.
-
-- Change design tokens and global styles in `packages/ui/src/styles/globals.css`
-- Update shared primitives in `packages/ui/src/components/*`
-- Adjust shadcn aliases or style config in `packages/ui/components.json` and `apps/web/components.json`
-
-### Add more shared components
-
-Run this from the project root to add more primitives to the shared UI package:
-
+### 5. Deploy
 ```bash
-npx shadcn@latest add accordion dialog popover sheet table -c packages/ui
+# apps/server/.env: BETTER_AUTH_URL=https://<api-domain>, CORS_ORIGIN/WEB_URL=https://<web-domain>, ...
+# docker-compose.yml: set web build arg NEXT_PUBLIC_SERVER_URL=https://<api-domain> (baked in at build time)
+docker compose up -d --build
+docker compose exec server bun run --cwd /app/packages/db db:push   # or run db:push from a machine with DB access
 ```
+Put both behind your reverse proxy with TLS (auth cookies are `Secure; SameSite=None`).
+The `worker` service is capped at 3 CPUs / 3 GB RAM and uses the `work` volume as scratch space.
 
-Import shared components like this:
-
-```tsx
-import { Button } from "@youtube-biology-autogenerator/ui/components/button";
-```
-
-### Add app-specific blocks
-
-If you want to add app-specific blocks instead of shared primitives, run the shadcn CLI from `apps/web`.
-
-## Environment Configuration
-
-Each app owns its environment schema in `.env.schema`. Varlock generates `src/env.ts` during installation; run `bun run env:generate` after changing a schema. Commit schemas, and keep secrets in ignored env files or your deployment platform.
-
-Import the generated `ENV` accessor in application code. Shared database and auth packages receive configuration or initialized clients from the application. See [Varlock's monorepo guide](https://varlock.dev/guides/monorepos/).
-
-Bun's automatic env loading is disabled in `bunfig.toml`; the framework integration or server bootstrap loads Varlock. Node deployments must include Varlock and its dependencies alongside the app schema.
-
-Run standalone Node/Bun tools that use Varlock from the owning app directory so they load that app's schema and env files. `env:generate` only generates TypeScript files; it does not initialize environment values in a subsequent command.
-
-## Deployment
-
-### Docker Compose
-
-- Target: web + server
-- Config: `docker-compose.yml` (app Dockerfiles live in `apps/*/Dockerfile`)
-- Build images: bun run docker:build
-- Start: bun run docker:up
-- Logs: bun run docker:logs
-- Stop: bun run docker:down
-
-Environment variables are read from each app's `.env` file (baked into web builds for public variables) and overridden in `docker-compose.yml` for container networking.
-
-For more details, see the guide on [Deploying with Docker Compose](https://www.better-t-stack.dev/docs/guides/docker).
-
-## Project Structure
-
-```
-youtube-biology-autogenerator/
-├── apps/
-│   ├── web/         # Frontend application (Next.js)
-│   └── server/      # Backend API (Elysia)
-├── packages/
-│   ├── ui/          # Shared shadcn/ui components and styles
-│   ├── auth/        # Authentication configuration & logic
-│   └── db/          # Database schema & queries
-```
-
-## Available Scripts
-
-- `bun run dev`: Start all applications in development mode
-- `bun run build`: Build all applications
-- `bun run dev:web`: Start only the web application
-- `bun run dev:server`: Start only the server
-- `bun run check-types`: Check TypeScript types across all apps
-- `bun run db:push`: Push schema changes to database
-- `bun run db:generate`: Generate database client/types
-- `bun run db:migrate`: Run database migrations
-- `bun run db:studio`: Open database studio UI
-- `bun run docker:build`: Build the Docker Compose images
-- `bun run docker:up`: Build and start the Docker Compose stack
-- `bun run docker:logs`: Tail logs from the Docker Compose stack
-- `bun run docker:down`: Stop the Docker Compose stack
-
-## Better Auth Schema Generation
-
-After changing auth plugins or schema options, run `bun run auth:generate` from the project root. The script runs the Better Auth CLI through `varlock run` from the owning app directory, loading the auth instance from `src/services.ts`. Review the schema changes, then use your ORM's migration workflow to apply them.
+## Recording tips (for her iPhone)
+- Settings → Camera → Record Video: **1080p at 30 fps**, turn **HDR Video off**, and turn **Auto FPS off**.
+- Landscape, on the tripod. Portrait clips work but get black bars.
